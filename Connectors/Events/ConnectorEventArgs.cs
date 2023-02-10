@@ -1,11 +1,13 @@
 namespace Connectors.Events;
 
-public class InstrumentEventArgs : System.EventArgs
-{
-    public InstrumentEventArgs(Types.Instrument instrument)
-    {
-       Instrument = instrument; 
-    }
+using Types;
 
-    public Types.Instrument Instrument { get; }
+public class PriceEventArgs : System.EventArgs {
+    public PriceEventArgs(int tickerId, Tick tick, decimal price) {
+        this.Tick = tick;
+        this.Price = price;
+    }
+    public int TickerId { get; }
+    public Tick Tick { get; }
+    public decimal Price { get; }
 }

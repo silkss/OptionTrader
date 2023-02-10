@@ -1,14 +1,17 @@
 namespace Connectors.Ib;
 
 using IBApi;
+using Types;
 using Events;
-using System.Threading;
 using System;
+using System.Threading;
+using System.Collections.Generic;
 
 public class Connector : DefaultEWrapper, IConnector
 {
 	private readonly EClientSocket _client;
 	private readonly EReaderSignal _signal;
+	private readonly List<Future> _cachedFutures = new();
 	private int _orderId; 
 
 	public Connector()
@@ -19,8 +22,11 @@ public class Connector : DefaultEWrapper, IConnector
 
 	public event ConnectorEventHandler OnConnected = delegate { };
 	public event ConnectorEventHandler OnDisconnected  = delegate { };
-	public event ConnectorEventHandler<InstrumentEventArgs> OnInstrumentAdded = delegate { };
+	public event ConnectorEventHandler<PriceEventArgs> OnPriceChanged = delegate { };
 
+	public (string symbol, string exchange)[] Symbols { get; } = new[] {
+		("EUR", "CME")};
+	public IEnumerable<Future> GetCachedFutures() => _cachedFutures;
 	public void Connect() => Connect("127.0.0.1", 7497, 12);
 	public void Connect(string host, int port, int id)
 	{
@@ -38,12 +44,42 @@ public class Connector : DefaultEWrapper, IConnector
 
 		_client.reqMarketRule(3);
 	}
+	public void UpdateCachedFutures()
+	{
+		_cachedFutures.Clear();
+		foreach ( var symbol in Symbols)
+		{
+			_client.reqContractDetails(0, new Contract{
+				Symbol = symbol.symbol,
+				Exchange = symbol.exchange,
+				Currency = "USD",
+				SecType = "FUT"
+			});
+		}
+	}
+	public void RequestMarketData(Future future)
+	{
+
+	}
+	public void RequestMarketData(Option option)
+	{
+
+	}
 
     public override void connectAck() => OnConnected(this);
 	public override void nextValidId(int orderId) => _orderId = orderId;
 	public override void contractDetails(int reqId, ContractDetails contractDetails)
 	{
-
+		if (contractDetails.Contract.SecType == "FUT")
+		{
+			var fut = contractDetails.ToFuture();
+			_cachedFutures.Add(fut);
+			return;
+		}
+		if (contractDetails.Contract.SecType == "FOP")
+		{
+			throw new NotImplementedException("Option instument received");
+		}
 	}
 	private void log(string msg) => Console.WriteLine(msg);
     public override void error(Exception e) => log(e.Message);
