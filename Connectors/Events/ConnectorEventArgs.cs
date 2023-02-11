@@ -11,3 +11,7 @@ public class PriceEventArgs : System.EventArgs {
     public Tick Tick { get; }
     public decimal Price { get; }
 }
+public class OptionAddedEventArgs: System.EventArgs{
+    public OptionAddedEventArgs(Option option) => this.Option = option;
+    public Option Option {get;}
+}

@@ -13,7 +13,17 @@ public class Connector : DefaultEWrapper, IConnector
 	private readonly EReaderSignal _signal;
 	private readonly List<Future> _cachedFutures = new();
 	private int _orderId; 
-
+	private Future? getFuturesById(int id)
+	{
+		foreach (var fut in _cachedFutures)
+		{
+			if (fut.Id == id)
+			{
+				return fut;
+			}
+		}
+		return null;
+	}
 	public Connector()
 	{
 		_signal = new EReaderMonitorSignal();
@@ -22,6 +32,7 @@ public class Connector : DefaultEWrapper, IConnector
 
 	public event ConnectorEventHandler OnConnected = delegate { };
 	public event ConnectorEventHandler OnDisconnected  = delegate { };
+	public event ConnectorEventHandler<OptionAddedEventArgs> OnOptionAdded = delegate { };
 	public event ConnectorEventHandler<PriceEventArgs> OnPriceChanged = delegate { };
 
 	public (string symbol, string exchange)[] Symbols { get; } = new[] {
@@ -47,25 +58,31 @@ public class Connector : DefaultEWrapper, IConnector
 	public void UpdateCachedFutures()
 	{
 		_cachedFutures.Clear();
-		foreach ( var symbol in Symbols)
+		foreach ( var (symbol, exchange) in Symbols)
 		{
-			_client.reqContractDetails(0, new Contract{
-				Symbol = symbol.symbol,
-				Exchange = symbol.exchange,
+			var contract = new Contract() {
+				Symbol = symbol,
+				Exchange = exchange,
 				Currency = "USD",
 				SecType = "FUT"
-			});
+			};
+			_client.reqContractDetails(0, contract);
 		}
 	}
-	public void RequestMarketData(Future future)
+	public void RequestMarketData(Future future) { }
+	public void RequestMarketData(Option option) { }
+	public void RequestOption(Future parent, double strike, OptionType type, DateTime expiration)
 	{
-
+		var contract = new Contract() {
+			Symbol = parent.Symbol,
+			Strike = strike,
+			Right = type == OptionType.Call ? "C" : "P",
+			LastTradeDateOrContractMonth = expiration.ToString("yyyyMMdd"),
+			Exchange = parent.Exchange,
+			SecType = "FOP",
+		};
+		_client.reqContractDetails(0, contract);
 	}
-	public void RequestMarketData(Option option)
-	{
-
-	}
-
     public override void connectAck() => OnConnected(this);
 	public override void nextValidId(int orderId) => _orderId = orderId;
 	public override void contractDetails(int reqId, ContractDetails contractDetails)
@@ -74,6 +91,7 @@ public class Connector : DefaultEWrapper, IConnector
 		{
 			var fut = contractDetails.ToFuture();
 			_cachedFutures.Add(fut);
+			_client.reqSecDefOptParams(0, fut.Symbol, fut.Exchange, "FUT", fut.Id);
 			return;
 		}
 		if (contractDetails.Contract.SecType == "FOP")
@@ -81,6 +99,18 @@ public class Connector : DefaultEWrapper, IConnector
 			throw new NotImplementedException("Option instument received");
 		}
 	}
+	public override void securityDefinitionOptionParameter(int reqId, string exchange, int underlyingConId, string tradingClass, string multiplier, HashSet<string> expirations, HashSet<double> strikes)
+    {
+		if (getFuturesById(underlyingConId) is Future fut)
+		{	
+			foreach (var expiration in expirations)
+			{
+				fut.AddOptionTradingClass(
+					new OptionTradingClass(underlyingConId, tradingClass, expiration.ToDateTime(), strikes)
+				);
+			}
+		}
+    } 
 	private void log(string msg) => Console.WriteLine(msg);
     public override void error(Exception e) => log(e.Message);
     public override void error(int id, int errorCode, string errorMsg, string advancedOrderRejectJson)
